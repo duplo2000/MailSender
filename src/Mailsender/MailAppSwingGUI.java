@@ -15,6 +15,7 @@ public class MailAppSwingGUI extends JFrame {
     private JLabel mailAppLabel;
     private JTextArea inboxDisplay;
     private JPanel emailAppPanel;
+    private JButton refreshButton;
 
 
     public MailAppSwingGUI(){
