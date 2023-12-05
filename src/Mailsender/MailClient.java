@@ -1,12 +1,16 @@
 package Mailsender;
 
+import javax.mail.MessagingException;
 import javax.swing.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.io.File;
+import java.io.IOException;
+import java.util.List;
 
 /**
- * Klassen MailClient representerar ett enkelt e-postklientgränssnitt. Det möjliggör för användaren att
- * skicka och ta emot e-postmeddelanden, samt visa mottagna meddelanden i ett JTextArea-fönster.
+ * MailClient-klassen representerar en e-postklient med användargränssnitt.
+ * Användaren kan skriva och skicka e-postmeddelanden, med eller utan bifogad bilaga, samt hämta sina inkorgsmeddelanden.
  */
 public class MailClient extends JFrame {
     private JTextField toField;
@@ -16,17 +20,21 @@ public class MailClient extends JFrame {
     private JLabel toLabel;
     private JLabel subjectLabel;
     private JLabel msgLabel;
-    private JLabel mailAppLabel;
     private JPanel emailAppPanel;
-    private JButton refreshButton;
-    private JTextArea receivedMails;
     private JTextField serverField;
     private JTextField usernameField;
     private JTextField passwordField;
-    private JLabel mailServerLabel;
     private JLabel usernameLabel;
     private JLabel passwordLabel;
-    private JScrollPane scrollpane;
+    private JButton inboxButton;
+    private JButton chooseFileButton;
+    private JLabel attachmentLabel;
+    private JLabel fileNameLabel;
+    private JPanel senderPanel;
+    private JLabel emailIcon;
+    private JLabel logInLabel;
+    private String filename = "";
+    private File file;
 
     /**
      * Huvudmetod för att starta e-postklienten
@@ -36,59 +44,59 @@ public class MailClient extends JFrame {
     }
 
     /**
-     * Konstruktor för klienten som bygger GUI:n
+     * Konstruktor för klienten som bygger användargränssnittet.
+     * Skapar och initialiserar fönstret, knappar och textfält.
      */
     public MailClient() {
-        setTitle("Mail App");
+        setTitle("Eriks mail");
         setContentPane(emailAppPanel);
-        setSize(700, 350);
+        setSize(666, 666);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
         setVisible(true);
-        receivedMails.setEditable(false);
         sendButton = createSendButton();
-        refreshButton = createRefreshButton();
+        inboxButton = createInboxButton();
+        chooseFileButton = createChooseFileButton();
     }
 
     /**
-     * Skapar "Refresh" knappen för att ta emot nya mail.
+     * Skapar knappen för att öppna inkorgen och kopplar den till öppningslogik.
      *
-     * @return Returnerar refresh-knappen.
+     * @return Inbox-knappen.
      */
-    private JButton createRefreshButton() {
-        refreshButton.addActionListener(new ActionListener() {
+    private JButton createInboxButton() {
+        inboxButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                handleRefreshButtonClicked();
+                openInboxWindow();
             }
         });
-        return refreshButton;
+        return inboxButton;
     }
 
     /**
-     * Hanterar logiken när användaren trycker på refreshknappen genom att skapa en instans av MailSender och anropa metoderna receiveMail & getMostRecentMessageString
+     * Öppnar fönstret som visar användarens inkorg med e-postmeddelanden.
+     * Antingen med standard inbox eller användarens angivna gmail-konto.
      */
-    private void handleRefreshButtonClicked() {
-
+    private void openInboxWindow() {
+        MailReceiver mailReceiver;
         try {
-            if (serverField != null || usernameField != null || passwordField != null) {
-                MailReceiver mailReceiver = new MailReceiver(serverField.toString(), usernameField.toString(), passwordField.toString());
-            }
+            mailReceiver = new MailReceiver(usernameField.getText(), passwordField.getText());
             // Hämta mail med genom mailReceivers receiveMail metod
-            MailReceiver mailReceiver = new MailReceiver();
             mailReceiver.receiveMail();
-
-            String mostRecentMail = mailReceiver.getMostRecentMessageString();
-
-            //Rensa textArean receivedMails
-            receivedMails.setText("");
-            //Visa senaste mailet på receivedMails
-            receivedMails.append(mostRecentMail);
-
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (MessagingException | IOException e) {
+            JOptionPane.showMessageDialog(this, """
+                    1. Check correct account credentials
+                    2. Enable ~Less secure apps~
+                    3. Use generated App Password
+                    4. Check for Two Factor Authentication enabled""", "Error, log in failed.", JOptionPane.ERROR_MESSAGE);
+            return;
         }
+        //Konvertera inboxens mail till DisplayMessages
+        List<DisplayMessage> displayMessages = mailReceiver.getMessagesToDisplay();
+        new InboxWindow(displayMessages);
     }
+
 
     /**
      * Skapar Send-knappen för att skicka mail.
@@ -106,16 +114,67 @@ public class MailClient extends JFrame {
     }
 
     /**
-     * Hanterar logiken när användaren klickar på knappen genom att skapa en instans av MailSender och anropa dess metod sendMail, och bekräfta att meddelandet har skickats.
+     * Hanterar logiken när användaren klickar på "Send"-knappen.
+     * Skapar en instans av MailSender, kopplar eventuell bilaga och skickar meddelandet.
      */
     private void handleSendButtonClicked() {
-        String emailRecipient = toField.getText();
-        String emailSubject = subjectField.getText();
-        String emailMsg = msgField.getText();
-        MailSender mailSender = new MailSender(emailRecipient, emailSubject, emailMsg);
-        mailSender.sendMail();
-        receivedMails.append("Client: Email sent succesfully!");
+        try {
+            MailSender mailSender = initializeMailSender();
+            if (!filename.equals("")) {
+                mailSender.setAttachment(file);
+            }
+            mailSender.sendMail();
+            JOptionPane.showMessageDialog(this, "Email sent successfully!");
+            toField.setText("");
+            subjectField.setText("");
+            msgField.setText("");
+            fileNameLabel.setText("");
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, """
+                    1. Check correct account credentials
+                    2. Enable ~Less secure apps~
+                    3. Use generated App Password
+                    4. Check for Two Factor Authentication enabled""", "Error, log in failed.", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
+    /**
+     * Skapar knappen för att välja och bifoga en fil till e-postmeddelandet.
+     *
+     * @return Välj fil-knappen.
+     */
+    private JButton createChooseFileButton() {
+        chooseFileButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                handleChooseFileButtonClicked();
+            }
+        });
+        return chooseFileButton;
+    }
 
+    /**
+     * Hanterar logiken när användaren väljer att bifoga en fil till meddelandet.
+     */
+    private void handleChooseFileButtonClicked() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.showOpenDialog(null);
+        file = chooser.getSelectedFile();
+        fileNameLabel.setText(file.getName());
+    }
+
+    /**
+     * Förbereder och initialiserar MailSender-instansen med mottagare, ämne och meddelandeinnehåll.
+     */
+    private MailSender initializeMailSender() {
+        String username = usernameField.getText();
+        String password = passwordField.getText();
+
+        String to = toField.getText();
+        String subject = subjectField.getText();
+        String msg = msgField.getText();
+
+        MailSender mailSender = new MailSender(to, subject, msg, username, password);
+        return mailSender;
+    }
 }
